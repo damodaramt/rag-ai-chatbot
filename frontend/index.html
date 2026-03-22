@@ -1,0 +1,201 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>AI Chat 🚀</title>
+
+    <style>
+        body {
+            font-family: Arial;
+            margin: 0;
+            display: flex;
+            height: 100vh;
+            background: #343541;
+            color: white;
+        }
+
+        /* CHAT AREA */
+        #chat-container {
+            flex: 3;
+            display: flex;
+            flex-direction: column;
+        }
+
+        #chat-box {
+            flex: 1;
+            padding: 20px;
+            overflow-y: auto;
+        }
+
+        .msg {
+            padding: 12px;
+            margin: 10px;
+            border-radius: 10px;
+            max-width: 70%;
+            line-height: 1.5;
+        }
+
+        .user {
+            background: #0b93f6;
+            align-self: flex-end;
+        }
+
+        .bot {
+            background: #444654;
+            align-self: flex-start;
+        }
+
+        #input-box {
+            display: flex;
+            padding: 10px;
+            background: #40414f;
+        }
+
+        input {
+            flex: 1;
+            padding: 12px;
+            border: none;
+            outline: none;
+            background: #343541;
+            color: white;
+        }
+
+        button {
+            padding: 10px 15px;
+            background: #19c37d;
+            border: none;
+            cursor: pointer;
+            color: white;
+        }
+
+        /* SOURCES PANEL */
+        #sources-panel {
+            flex: 1;
+            border-left: 1px solid #555;
+            padding: 15px;
+            background: #202123;
+        }
+
+        .source-item {
+            padding: 8px;
+            margin: 5px 0;
+            background: #444654;
+            cursor: pointer;
+        }
+
+        .loading {
+            font-style: italic;
+            color: gray;
+        }
+    </style>
+</head>
+
+<body>
+
+<!-- CHAT -->
+<div id="chat-container">
+    <div id="chat-box"></div>
+
+    <div id="input-box">
+        <input id="input" placeholder="Ask something..." />
+        <button onclick="sendMessage()">Send</button>
+    </div>
+</div>
+
+<!-- SOURCES -->
+<div id="sources-panel">
+    <h3>Sources</h3>
+    <div id="sources-list"></div>
+</div>
+
+<script>
+
+// ✅ ENTER KEY SUPPORT
+document.getElementById("input").addEventListener("keypress", function(e) {
+    if (e.key === "Enter") {
+        sendMessage();
+    }
+});
+
+async function sendMessage() {
+    let input = document.getElementById("input");
+    let text = input.value.trim();
+
+    if (!text) return;
+
+    input.value = "";
+
+    let chatBox = document.getElementById("chat-box");
+
+    // USER MESSAGE
+    let userMsg = document.createElement("div");
+    userMsg.className = "msg user";
+    userMsg.innerText = text;
+    chatBox.appendChild(userMsg);
+
+    // BOT MESSAGE
+    let botMsg = document.createElement("div");
+    botMsg.className = "msg bot";
+    botMsg.innerText = "Thinking...";
+    chatBox.appendChild(botMsg);
+
+    chatBox.scrollTop = chatBox.scrollHeight;
+
+    // CALL API
+    let response = await fetch("http://34.47.211.51:8000/chat", {
+        method: "POST",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({
+            prompt: text,
+            user_id: "user1"
+        })
+    });
+
+    let reader = response.body.getReader();
+    let decoder = new TextDecoder();
+
+    let result = "";
+
+    while (true) {
+        let { done, value } = await reader.read();
+        if (done) break;
+
+        let chunk = decoder.decode(value);
+        result += chunk;
+
+        // SPLIT ANSWER + SOURCES
+        if (result.includes("Sources:")) {
+            let parts = result.split("Sources:");
+            botMsg.innerText = parts[0];
+            showSources(parts[1].split("\n"));
+        } else {
+            botMsg.innerText = result;
+        }
+
+        chatBox.scrollTop = chatBox.scrollHeight;
+    }
+}
+
+// ✅ SHOW SOURCES (CLICKABLE)
+function showSources(sources) {
+    let panel = document.getElementById("sources-list");
+    panel.innerHTML = "";
+
+    sources.forEach(s => {
+        let clean = s.trim();
+        if (clean !== "") {
+            let div = document.createElement("div");
+            div.className = "source-item";
+
+            let page = clean.replace("Page ", "");
+
+            div.innerHTML = `<a href="/uploads/Knorr_Future_50_Report_FINAL_Online.pdf#page=${page}" target="_blank" style="color:white;">${clean}</a>`;
+
+            panel.appendChild(div);
+        }
+    });
+}
+
+</script>
+
+</body>
+</html>
