@@ -21,3 +21,6 @@
 ```bash
 pip install -r requirements.txt
 uvicorn app:app --reload
+
+## 🌐 Live Demo
+https://damodaram-ai.ddns.net
