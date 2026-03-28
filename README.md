@@ -1,26 +1,47 @@
 # 🚀 AI RAG Chatbot (FastAPI + Ollama)
 
-## 🔥 Features
-- PDF-based Q&A (RAG)
-- FAISS vector search
-- HuggingFace embeddings
-- Reranking (CrossEncoder)
-- Streaming responses
-- Source citations
-- Nginx + HTTPS deployment
+## 🧠 Overview
 
-## 🧠 Tech Stack
+This project is a **ChatGPT-style AI chatbot** that allows users to upload PDF documents and ask questions based on their content.
+
+It uses **Retrieval-Augmented Generation (RAG)** to retrieve relevant context and generate accurate answers using a local LLM (Ollama - LLaMA3).
+
+---
+
+## 🔥 Features
+
+- 📄 PDF upload and processing
+- 🔍 Semantic search using embeddings
+- 🧠 Context-aware answers using RAG
+- 🤖 Local LLM inference (Ollama - LLaMA3)
+- ⚡ Real-time streaming responses (ChatGPT-style)
+- 📚 Source citation panel
+- 🐳 Dockerized deployment
+- 🌐 Nginx reverse proxy setup
+- 💾 Chat history with PostgreSQL
+
+---
+
+## 🛠 Tech Stack
+
+### Backend
 - FastAPI
+- Sentence Transformers
 - LangChain
 - FAISS
-- Sentence Transformers
-- Ollama (llama3)
 
-## 🚀 Run Locally
+### LLM
+- Ollama (LLaMA3)
 
-```bash
-pip install -r requirements.txt
-uvicorn app:app --reload
+### Frontend
+- HTML, CSS, JavaScript
+- Marked.js (Markdown rendering)
 
-## 🌐 Live Demo
-https://damodaram-ai.ddns.net
+### Infrastructure
+- Docker
+- Docker Compose
+- Nginx
+
+---
+
+## 🧠 Architecture
