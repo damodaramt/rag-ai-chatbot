@@ -14,7 +14,6 @@ body {
     color: white;
 }
 
-/* SIDEBAR */
 #sidebar {
     width: 260px;
     background: #202123;
@@ -30,35 +29,23 @@ body {
     background: #2a2b32;
 }
 
-.chat-item:hover {
-    background: #3a3b42;
-}
-
-.chat-item.active {
-    background: #4caf50;
-}
-
-/* MAIN */
 #main {
     flex: 1;
     display: flex;
     flex-direction: column;
 }
 
-/* CHAT */
 #chat-box {
     flex: 1;
     overflow-y: auto;
     padding: 20px;
 }
 
-/* MESSAGE */
 .msg {
     margin: 10px 0;
     padding: 12px;
     border-radius: 10px;
     max-width: 70%;
-    position: relative;
 }
 
 .user {
@@ -68,19 +55,9 @@ body {
 
 .bot {
     background: #444654;
+    white-space: pre-wrap;
 }
 
-/* COPY BUTTON */
-.copy-btn {
-    position: absolute;
-    top: 5px;
-    right: 8px;
-    cursor: pointer;
-    font-size: 12px;
-    color: #aaa;
-}
-
-/* INPUT */
 #input-area {
     display: flex;
     padding: 10px;
@@ -90,27 +67,21 @@ body {
 #input {
     flex: 1;
     padding: 10px;
-    border: none;
 }
 
-/* RIGHT PANEL */
 #sources {
     width: 300px;
     background: #202123;
     padding: 10px;
-    overflow-y: auto;
-    border-left: 1px solid #444;
 }
 </style>
 
-<!-- MARKDOWN -->
 <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
 
 </head>
 
 <body>
 
-<!-- LEFT -->
 <div id="sidebar">
     <h3>Chats</h3>
     <button onclick="createChat()">+ New Chat</button>
@@ -122,7 +93,6 @@ body {
     <button onclick="uploadPDF()">Upload</button>
 </div>
 
-<!-- CENTER -->
 <div id="main">
     <div id="chat-box"></div>
 
@@ -132,7 +102,6 @@ body {
     </div>
 </div>
 
-<!-- RIGHT -->
 <div id="sources">
     <h3>Sources</h3>
     <div id="sources-content"></div>
@@ -142,16 +111,15 @@ body {
 
 let currentChatId = null;
 
-/* INIT */
+// INIT
 window.onload = () => {
     loadChats();
-
     document.getElementById("input").addEventListener("keydown", e => {
         if (e.key === "Enter") sendMessage();
     });
 };
 
-/* LOAD CHATS */
+// LOAD CHATS
 async function loadChats() {
     const res = await fetch("/api/conversations");
     const chats = await res.json();
@@ -173,7 +141,7 @@ async function loadChats() {
     });
 }
 
-/* CREATE CHAT */
+// CREATE CHAT
 async function createChat() {
     const res = await fetch("/api/new_chat", { method: "POST" });
     const data = await res.json();
@@ -183,7 +151,7 @@ async function createChat() {
     loadChats();
 }
 
-/* LOAD MESSAGES */
+// LOAD MESSAGES
 async function loadMessages(id) {
     const res = await fetch(`/api/messages/${id}`);
     const msgs = await res.json();
@@ -196,7 +164,7 @@ async function loadMessages(id) {
     });
 }
 
-/* SEND MESSAGE */
+// 🔥 FINAL STREAM SAFE VERSION
 async function sendMessage() {
 
     let input = document.getElementById("input");
@@ -208,81 +176,97 @@ async function sendMessage() {
     input.value = "";
 
     addMessage(text, "user");
+    let botMsg = addMessage("...", "bot");
 
-    let botMsg = addMessage("", "bot");
+    try {
+        const response = await fetch("/api/chat", {
+            method: "POST",
+            headers: {"Content-Type": "application/json"},
+            body: JSON.stringify({
+                prompt: text,
+                user_id: currentChatId
+            })
+        });
 
-    const res = await fetch("/api/chat", {
-        method: "POST",
-        headers: {"Content-Type": "application/json"},
-        body: JSON.stringify({
-            prompt: text,
-            user_id: currentChatId
-        })
-    });
-
-    const data = await res.json();
-    let fullText = data.response || "No response";
-
-    // SPLIT SOURCES
-    let parts = fullText.split("Sources:");
-    let answer = parts[0];
-    let sources = parts[1] || "";
-
-    // SHOW SOURCES
-    document.getElementById("sources-content").innerText = sources;
-
-    // TYPE EFFECT
-    let i = 0;
-    function type() {
-        if (i < answer.length) {
-            botMsg.innerHTML += answer.charAt(i);
-            i++;
-            setTimeout(type, 10);
+        if (!response.body) {
+            throw new Error("No stream body");
         }
+
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+
+        let fullText = "";
+
+        while (true) {
+            const { done, value } = await reader.read();
+
+            if (done) break;
+
+            if (!value) continue;
+
+            const chunk = decoder.decode(value, { stream: true });
+
+            if (!chunk) continue;
+
+            fullText += chunk;
+
+            let parts = fullText.split("### Sources:");
+            let answer = parts[0];
+            let sources = parts[1] || "";
+
+            botMsg.innerHTML = marked.parse(answer);
+
+            document.getElementById("sources-content").innerHTML =
+                marked.parse(sources);
+
+            document.getElementById("chat-box").scrollTop = 999999;
+        }
+
+    } catch (err) {
+        console.error("🔥 STREAM ERROR:", err);
+        botMsg.innerHTML += "\n\n⚠️ Connection interrupted. Partial response shown.";
     }
-    type();
 }
 
-/* ADD MESSAGE */
+// ADD MESSAGE
 function addMessage(text, role) {
-
     let div = document.createElement("div");
-    div.className = "msg " + (role === "user" ? "user" : "bot");
-
-    // MARKDOWN
+    div.className = "msg " + role;
     div.innerHTML = marked.parse(text);
 
-    // COPY BUTTON
-    let copy = document.createElement("span");
-    copy.innerText = "Copy";
-    copy.className = "copy-btn";
-
-    copy.onclick = () => {
-        navigator.clipboard.writeText(text);
-    };
-
-    div.appendChild(copy);
-
-    let box = document.getElementById("chat-box");
-    box.appendChild(div);
-    box.scrollTop = box.scrollHeight;
-
+    document.getElementById("chat-box").appendChild(div);
     return div;
 }
 
-/* UPLOAD PDF */
+// UPLOAD PDF
 async function uploadPDF() {
     let file = document.getElementById("upload").files[0];
+
+    if (!file) {
+        alert("Select file first");
+        return;
+    }
 
     let form = new FormData();
     form.append("file", file);
 
-    await fetch("/api/upload_pdf", {
-        method: "POST",
-        body: form
-    });
+    try {
+        let res = await fetch("/api/upload_pdf", {
+            method: "POST",
+            body: form
+        });
 
-    alert("PDF uploaded!");
+        let data = await res.json();
+
+        if (res.ok) {
+            alert("✅ Upload success");
+        } else {
+            alert("❌ Error: " + data.error);
+        }
+
+    } catch (err) {
+        alert("❌ Upload failed");
+    }
 }
 
 </script>

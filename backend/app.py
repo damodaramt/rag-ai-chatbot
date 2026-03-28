@@ -1,18 +1,21 @@
 from fastapi import FastAPI, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel
 import psycopg2
 import requests
 import os
 import shutil
 import time
+import json
 
 from rag_engine import create_vector_db, search_docs
 
 app = FastAPI()
 
-# ---------------- CORS ---------------- #
+# ==============================
+# CORS
+# ==============================
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -21,7 +24,9 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# ---------------- DB CONNECTION ---------------- #
+# ==============================
+# DB CONNECTION
+# ==============================
 def get_conn():
     while True:
         try:
@@ -37,17 +42,23 @@ def get_conn():
             print("❌ DB not ready, retrying...", e)
             time.sleep(2)
 
-# ---------------- OLLAMA ---------------- #
+# ==============================
+# OLLAMA
+# ==============================
 OLLAMA_URL = os.getenv(
     "OLLAMA_URL",
-    "http://host.docker.internal:11434/api/generate"
+    "http://172.17.0.1:11434/api/generate"
 )
 
-# ---------------- PATHS ---------------- #
+# ==============================
+# PATHS
+# ==============================
 UPLOAD_DIR = "uploads"
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 
-# ---------------- REQUEST MODEL ---------------- #
+# ==============================
+# REQUEST MODEL
+# ==============================
 class ChatRequest(BaseModel):
     prompt: str
     user_id: int
@@ -113,37 +124,51 @@ def get_messages(chat_id: int):
 @app.post("/api/upload_pdf")
 def upload_pdf(file: UploadFile = File(...)):
     try:
+        print("📥 Uploading:", file.filename)
+
         path = os.path.join(UPLOAD_DIR, file.filename)
 
         with open(path, "wb") as buffer:
             shutil.copyfileobj(file.file, buffer)
 
+        print("✅ Saved:", path)
+
         create_vector_db([path])
+
+        print("✅ Vector DB updated")
 
         return {"message": "PDF processed successfully"}
 
     except Exception as e:
-        print("❌ PDF upload error:", str(e))
+        print("❌ Upload error:", str(e))
         return JSONResponse(status_code=500, content={"error": str(e)})
 
 
 # =========================================================
-# CHAT
+# CHAT (FINAL STREAMING FIX)
 # =========================================================
-
 @app.post("/api/chat")
 def chat(req: ChatRequest):
-    try:
+
+    def generate():
+
         conn = get_conn()
         cur = conn.cursor()
 
         prompt = req.prompt
         chat_id = req.user_id
 
-        # ---------------- RAG ---------------- #
+        print("💬 Query:", prompt)
+
+        # -------- RAG --------
         docs = search_docs(prompt)
+
         context = "\n".join([d["text"] for d in docs]) if docs else ""
-        sources = list(set([d["source"] for d in docs])) if docs else []
+
+        sources = list(set([
+            f"{d.get('source')} (Page {d.get('page', '-')})"
+            for d in docs
+        ]))
 
         full_prompt = f"""
 Answer based on context.
@@ -155,46 +180,70 @@ Question:
 {prompt}
 """
 
-        # ---------------- SAVE USER ---------------- #
+        # SAVE USER
         cur.execute(
             "INSERT INTO messages (conversation_id, role, content) VALUES (%s, %s, %s)",
             (chat_id, "user", prompt)
         )
         conn.commit()
 
-        # ---------------- CALL OLLAMA ---------------- #
-        response = requests.post(
-            OLLAMA_URL,
-            json={
-                "model": "llama3:latest",
-                "prompt": full_prompt,
-                "stream": False
-            },
-            timeout=300  # 🔥 important (model heavy)
-        )
+        final_text = ""
 
-        data = response.json()
+        # 🔥 FINAL STREAM FIX (IMPORTANT)
+        try:
+            with requests.post(
+                OLLAMA_URL,
+                json={
+                    "model": "llama3:latest",
+                    "prompt": full_prompt,
+                    "stream": True
+                },
+                stream=True
+            ) as response:
 
-        # 🔥 SAFETY CHECK
-        if "response" not in data:
-            raise Exception(f"Ollama error: {data}")
+                for chunk in response.iter_content(chunk_size=1024):
 
-        answer = data["response"]
+                    if not chunk:
+                        continue
 
-        final_answer = answer + "\n\nSources:\n" + "\n".join(sources)
+                    decoded = chunk.decode("utf-8", errors="ignore")
 
-        # ---------------- SAVE BOT ---------------- #
+                    for line in decoded.split("\n"):
+
+                        if not line.strip():
+                            continue
+
+                        try:
+                            data = json.loads(line)
+                            token = data.get("response", "")
+
+                            if token:
+                                final_text += token
+                                yield token
+
+                        except:
+                            continue
+
+        except Exception as e:
+            print("❌ Ollama error:", e)
+            yield "\n\n⚠️ Model connection failed\n"
+
+        # -------- SEND SOURCES --------
+        yield "\n\n### Sources:\n"
+        for s in sources:
+            yield f"- {s}\n"
+
+        yield "\n"   # ✅ IMPORTANT (clean finish)
+
+        # SAVE BOT RESPONSE
         cur.execute(
             "INSERT INTO messages (conversation_id, role, content) VALUES (%s, %s, %s)",
-            (chat_id, "assistant", final_answer)
+            (chat_id, "assistant", final_text)
         )
         conn.commit()
 
         cur.close()
         conn.close()
 
-        return {"response": final_answer}
-
-    except Exception as e:
-        print("❌ CHAT ERROR:", str(e))
-        return JSONResponse(status_code=500, content={"error": str(e)})
+    # ✅ CLEAN RESPONSE (NO HEADERS)
+    return StreamingResponse(generate(), media_type="text/plain")

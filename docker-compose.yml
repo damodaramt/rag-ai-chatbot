@@ -2,42 +2,71 @@ version: "3.9"
 
 services:
 
+  # ==============================
+  # BACKEND (FastAPI)
+  # ==============================
   backend:
     build: ./backend
     container_name: rag-backend
-    ports:
-      - "8000:8000"
+    restart: always
+
     depends_on:
       - postgres
+
     environment:
-      - DB_HOST=postgres
-      - OLLAMA_URL=http://host.docker.internal:11434/api/generate
+      DB_HOST: postgres
+      OLLAMA_URL: http://172.17.0.1:11434/api/generate
+
     extra_hosts:
       - "host.docker.internal:host-gateway"
 
+    # ❌ REMOVE PUBLIC PORT (internal only)
+    expose:
+      - "8000"
+
+
+  # ==============================
+  # DATABASE (PostgreSQL)
+  # ==============================
   postgres:
     image: postgres:15
     container_name: rag-postgres
     restart: always
+
     environment:
       POSTGRES_DB: rag_db
       POSTGRES_USER: rag_user
       POSTGRES_PASSWORD: rag123
-    ports:
-      - "5433:5432"
+
     volumes:
       - pgdata:/var/lib/postgresql/data
 
+    # OPTIONAL (only if debugging locally)
+    ports:
+      - "5433:5432"
+
+
+  # ==============================
+  # NGINX (Frontend + API Gateway)
+  # ==============================
   nginx:
     image: nginx:latest
     container_name: rag-nginx
+    restart: always
+
     ports:
       - "8080:80"
+
     volumes:
       - ./frontend:/usr/share/nginx/html
       - ./nginx/nginx.conf:/etc/nginx/conf.d/default.conf
+
     depends_on:
       - backend
 
+
+# ==============================
+# VOLUMES
+# ==============================
 volumes:
   pgdata:
